@@ -1,0 +1,16 @@
+# 本地数据：能力矩阵快照与凭据绝不入库
+references/model-matrix.json
+references/model-matrix.md
+*.local.*
+.credentials.yaml
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

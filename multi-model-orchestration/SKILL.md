@@ -1,0 +1,169 @@
+---
+name: multi-model-orchestration
+description: Orchestrate one task across several models and modalities as Team Lead. Use when a job benefits from different model strengths (long-context reading, code, cheap bulk passes, adversarial review, vision), when the user says "让几个模型一起做 / 多模型 / 交叉验证 / 找一个不同模型唱反调", or when routing work to Kimi / Qwen / GLM / DeepSeek / local Ollama through a workflow. Covers model routing, panel patterns, verified provider failure modes, and the delegation contract. Skip for single-model tasks — one model is faster and cheaper.
+metadata:
+  version: "1"
+  verified_on: "2026-10-14"
+---
+
+# 多模型编排（中轴线手册）
+
+我是这条线的中轴：**拆任务 → 按模型长处派活 → 合并 → 自己验证**。
+委派出去的东西永远不是最终答案，最终答案由我在工具与证据上落定。
+
+判断标准只有一条：**这个活儿换个模型是不是明显更好？** 不是就别派——单模型更快更省。
+
+## 1. 硬事实：怎么把活派给指定模型
+
+| 工具 | 能否指定模型 | 说明 |
+|---|---|---|
+| `workflow` 的 `agent(prompt, { provider, model })` | ✅ **唯一可靠方式** | 逐 agent 覆盖，可混着跑多家的模型 |
+| `spawn_teammate` | ❌ **入参没有 model 字段** | 常驻队友只能继承会话默认模型（`agent-default-model`）。别用它做跨模型 |
+| 子代理（`subagent`） | ❌ 同上 | 一次性委派，仍继承会话模型 |
+
+所以：**要跨模型，就用 `workflow`**；需要"常驻队友"时接受它与主会话同模型。
+
+`provider` 名必须与 profile 配置一致（见 §2 表），写错 → agent 静默返回 `null`。
+
+## 2. 已验证的模型路由表（2026-10-14 实测，10 项矩阵 9 通过）
+
+| provider / model | 定位 | 实测 | 备注 |
+|---|---|---|---|
+| `moonshot / kimi-k3` | 长文、方案、跨领域推理 | ✅ 含视觉 | 上下文 262144；图像输入已声明 |
+| `moonshot / kimi-k2.7-code` | 代码 | ✅ | 262144 |
+| `qwen / qwen-plus` | 通用、便宜、稳 | ✅ | 非思考型 |
+| `qwen / qwen3.8-max` | 最新旗舰，复杂分析 | ✅ | 思考五档 |
+| `qwen / qwen3.5-flash` | 快、便宜、会思考 | ✅ | 批量活首选 |
+| `qwen / qwen3.5-*`、`qwen3.6-*`、`qwen3.7-*` | 各档位 | ✅（同族抽验） | 均有思考等级 |
+| `qwen / qwen3-vl-plus` | **视觉** | ✅ 读图验证过 | 必须声明 `input: [text, image]` |
+| `qwen / qwen3.8-omni-flash`、`qwen3.5-omni-plus` | 全模态 | 已声明 image | |
+| `qwen / qwen-max` | 老旗舰 | ⚠ **输入上限 30720** | 已在配置里声明 `contextWindow: 30720`，别拿它跑长上下文 |
+| `bailian / kimi-k3` | Kimi 的备用通道 | ✅ | 走百炼，**不受 Moonshot 账号并发限制** |
+| `bailian / glm-5.3` | 挑剔型评审 | ✅ | 只认 `low/high/max` 三档 |
+| `bailian / deepseek-v4-pro` | 中文长文 | ✅ | 只认 `low/medium/high/xhigh/max` |
+| `ollama / *` | 本地、离线、零成本 | 未测 | 走 127.0.0.1:11434 |
+
+**选型直觉**：长上下文/方案 → Kimi K3；批量便宜 → Qwen3.5 Flash；复杂推理 → Qwen3.8 Max；
+代码 → Kimi K2.7 Code；挑剔评审/找漏洞 → GLM-5.3；看图 → Qwen3-VL-Plus；本地兜底 → Ollama。
+
+## 3. 四种编排模式（复制即用）
+
+**① 并行扇出（独立子任务）**
+```js
+const rs = await parallel(items.map(it => () => agent(brief(it), { provider: "qwen", model: "qwen3.5-flash" })));
+```
+
+**② 对抗式复核（最值钱）** — 同一份结论给两家模型各写批评，分歧点就是我要亲自查的地方：
+```js
+const [a, b] = await parallel([
+  () => agent(critiqueBrief, { provider: "bailian", model: "glm-5.3" }),
+  () => agent(critiqueBrief, { provider: "qwen",   model: "qwen3.8-max" }),
+]);
+```
+
+**③ 便宜模型筛 + 强模型定**：先用 flash 跑 N 个候选，只把前 3 个交给 K3/3.8-max 深做。
+
+**④ 多模态分工**：图片/截图的判读交给 `qwen3-vl-plus`（让它自己用 `read_image` 读本地文件），
+文本推理交给 K3/Qwen，**我负责把两边结论对齐**。
+
+有 `pipeline(items, ...stages)` 时优先用它（无栅栏，快）；只有确实要等全部结果才用 `parallel`。
+
+## 4. 失败手册（都是实测踩过的，按此排查能省半小时）
+
+| 症状 | 根因 | 处置 |
+|---|---|---|
+| `agent()` 返回 `null`，无报错 | 子代理失败被静默吞掉 | 去会话日志捞错误（§5 配方） |
+| `400 developer is not one of [...]` | 非 OpenAI 端点不认 `developer` 角色 | provider 加 `compat: { supportsDeveloperRole: false }`（ollama/moonshot/qwen/bailian 已加） |
+| `400 tools.function.parameters is not a valid moonshot flavored json schema … infinite recursion` | 工具 schema 里有自引用 `$ref` | MCP 服务设 `REA_MCP_INPUT_SCHEMA_PROFILE: compact` |
+| `400 … Range of input length should be [1, 30720]` | 模型输入上限比 DSH 以为的小（qwen-max） | 声明 `contextWindow` |
+| `400 'reasoning_effort' must be one of: 'low','high','max'` | 各家思考词表不同 | 只声明该模型认的键（见 §2 备注） |
+| 模型说"看不到图像" | provider 配置没声明 `input: [text, image]` | 在模型条目补 `input` |
+| `429 max organization concurrency: 1` / `max RPM: 3` | Moonshot 账号等级限制（0 级） | 升到 1 级（15 并发）或改走 `bailian/kimi-k3` |
+| workflow 报 model 不存在 | `provider` 名或 model id 写错 | 对照 §2；改完 provider 配置**通常热加载**，不生效再重启 |
+
+## 5. 诊断配方（我自己用的）
+
+**捞子代理真实报错**（`agent()` 的 null 不告诉你原因）：
+```python
+import glob, os, re, time
+from compression import zstd           # Python 3.14 自带
+paths = sorted(((os.path.getmtime(p), p) for p in
+    glob.glob(os.path.expanduser(r"~\.dsh\sessions\**\*"), recursive=True) if os.path.isfile(p)),
+    reverse=True)
+for mt, p in paths[:6]:
+    raw = open(p, "rb").read()
+    t = (zstd.decompress(raw) if p.endswith(".zstd") else raw).decode("utf-8", "replace")
+    for m in re.finditer(r'"kind":"error"', t):
+        print(time.strftime("%H:%M:%S", time.localtime(mt)), re.sub(r"\s+", " ", t[m.start():m.start()+400]))
+```
+
+**矩阵复测**（怀疑路由坏了时，10 个 1-token agent 并行，几秒出结果）：
+```js
+const Q = "只回两个字符：OK";
+const cases = [["moonshot","kimi-k3"],["qwen","qwen-plus"],["qwen","qwen3.8-max"],["qwen","qwen3-vl-plus"],["bailian","glm-5.3"]];
+return await parallel(cases.map(([p,m]) => () => agent(Q, { provider: p, model: m, label: m }).then(r => ({m, ok: r !== null}))));
+```
+
+## 6. 工具（本技能自带，别手工试错）
+
+```powershell
+$py = "python"
+$t  = "~\.agents\skills\multi-model-orchestration\tools"
+
+& $py $t/modelops.py check                 # 连通性：key 是否有效、端点是否可达、账号可见多少模型
+& $py $t/modelops.py matrix                # 全量能力矩阵 → references\model-matrix.md（52 个模型约 1~2 分钟）
+& $py $t/modelops.py matrix --only qwen    # 只测某家
+& $py $t/modelops.py add --provider qwen --model qwen3.9-max --deep   # 探查新模型并推导配置块
+& $py $t/dsh-errors.py -m 30 -g qwen       # 捞最近报错（agent() 返回 null 时的第一手段）
+```
+
+`references/model-matrix.md` 由工具生成，**不要手改**；每次加/换模型后重跑一次即可。
+矩阵里的 `developer 角色=拒绝` 一列直接告诉你该 provider 要不要 `compat.supportsDeveloperRole: false`。
+
+### 新增一个模型的标准流程（3 步）
+
+1. **加凭据**（新厂商）：`~\.dsh\.credentials.yaml` 的 `refs:` 加一行 `XXX_API_KEY: sk-...`，
+   或在 GUI 里加；配置里只写 `apiKeyEnv: XXX_API_KEY`，**明文永不进配置文件、也不贴聊天**。
+2. **探查**：`modelops.py add --provider <id> --model <model-id> --deep`
+   → 自动判定：能否调用 / `developer` 角色是否被拒（要不要 compat）/ 思考词表（哪些档位合法，
+   且只输出合法的）/ 是否吃图像（要不要 `input: [text, image]`）。把打印出的 YAML 块填进
+   `cordis.patch.yml` 的 `providers.<id>.models` 下。
+3. **验证**：`modelops.py matrix --only <id>` 确认全绿；再在 workflow 里发一个 1-token 真任务
+   确认 DSH 路由也通（直连通 ≠ DSH 通，两者故障模式不同）。
+
+> 新 provider 还要写 `api: openai-completions`、`baseURL`、`apiKeyEnv`；
+> 若 `add` 报告拒绝 developer 角色，**该 provider 必须**加：
+> ```yaml
+>         compat:
+>           supportsDeveloperRole: false
+> ```
+
+## 7. 失败回退链（聪明地兜底，别硬等）
+
+`agent()` 返回 `null` 时按顺序做，不要盲目重试同一个模型：
+
+| 场景 | 回退动作 |
+|---|---|
+| 某模型 429 / 限流 | **换通道**：`moonshot/kimi-k3` ↔ `bailian/kimi-k3`（后者不走 Moonshot 账号限流） |
+| 某模型 400 参数错 | 跑 `dsh-errors.py` 看原话 → 按 §4 修配置 → 修完再试；**别换模型掩盖配置错** |
+| 单模型不可用 | 用同族替代：Qwen3.8Max→3.7-Max→3.5-Plus；GLM-5.3→GLM-5.2；K3→K2.7-Code |
+| 长上下文被截断 | 换 `contextWindow` 大的：Kimi 系 262144；或先让便宜模型压缩摘要再交给强模型 |
+| 视觉模型说看不到图 | 检查该模型条目有没有 `input: [text, image]`（§4） |
+| 多家同时失败 | 先跑 `modelops.py check` 判断是不是 key/网络问题，再怀疑模型 |
+
+**成本纪律**：探针用 1-token；矩阵别频繁跑（只在加/换模型后）；真任务优先给便宜模型，只把难的部分交给旗舰。
+
+## 8. 派活契约（不遵守就会返工）
+
+1. **任务书要短、边界清晰、要求结构化输出**——跨模型最常死在"指令遵循风格不一致"，不是能力不足。
+2. **给绝对路径**；告诉它用哪个工具读（`read` / `read_image`）。
+3. **禁区要明说**："不要编造客户名/数字；缺数据就写占位符"（面向客户的产物尤其重要）。
+4. **写范围不重叠**：多个执行者时，一人一份文件；`write_scopes` 只是提示不是锁。
+5. **我负责**：合并、跑验证（不是靠它自称完成）、把结论落到证据上。
+6. **成本纪律**：先 1-token 探针验证路由，再发真任务；能并行的别串行。
+
+## 9. 何时不要用这套
+
+- 单文件小改动、一问一答 → 我自己做，别开 agent。
+- 需要连续多轮试探、频繁改文件 → 单模型（同模型队友）更顺，跨模型反而在交接上耗损。
+- 目标是"最终答案"而不是"多视角" → 多模型只值一次交叉复核，不值得全流程铺开。
