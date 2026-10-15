@@ -25,7 +25,7 @@ metadata:
 
 `provider` 名必须与 profile 配置一致（见 §2 表），写错 → agent 静默返回 `null`。
 
-## 2. 已验证的模型路由表（2026-10-14 实测，10 项矩阵 9 通过）
+## 2. 已验证的模型路由表（截至 2026-10-15，全部我亲自实测）
 
 | provider / model | 定位 | 实测 | 备注 |
 |---|---|---|---|
@@ -37,14 +37,57 @@ metadata:
 | `qwen / qwen3.5-*`、`qwen3.6-*`、`qwen3.7-*` | 各档位 | ✅（同族抽验） | 均有思考等级 |
 | `qwen / qwen3-vl-plus` | **视觉** | ✅ 读图验证过 | 必须声明 `input: [text, image]` |
 | `qwen / qwen3.8-omni-flash`、`qwen3.5-omni-plus` | 全模态 | 已声明 image | |
-| `qwen / qwen-max` | 老旗舰 | ⚠ **输入上限 30720** | 已在配置里声明 `contextWindow: 30720`，别拿它跑长上下文 |
+| `qwen / qwen-max` | 老旗舰 | ⚠ **输入上限 30720** | 已声明 `contextWindow: 30720`，别拿它跑长上下文 |
 | `bailian / kimi-k3` | Kimi 的备用通道 | ✅ | 走百炼，**不受 Moonshot 账号并发限制** |
 | `bailian / glm-5.3` | 挑剔型评审 | ✅ | 只认 `low/high/max` 三档 |
 | `bailian / deepseek-v4-pro` | 中文长文 | ✅ | 只认 `low/medium/high/xhigh/max` |
+| `ark / doubao-seed-2-1-turbo-260628` | **便宜的 agentic 工人**（能读文件、多步任务） | ✅ 两次全对 | `minimal` 输出 **155 tok**（不传参数 4426 tok，**28 倍差**）；单文件任务约 11 秒 |
+| `ark / doubao-seed-2-0-mini-260428` | **最便宜的纯文本批量活** | ✅ | 计算/翻译准确；**读文件会编**，别给 agentic 活 |
+| `ark / doubao-seed-2-0-lite-260428` | 同上的备份 | ⚠ 只纯文本 | 工具调用 API 层正常，但经 DSH 大工具表时**不读文件直接编**（假行号假代码） |
 | `ollama / *` | 本地、离线、零成本 | 未测 | 走 127.0.0.1:11434 |
 
-**选型直觉**：长上下文/方案 → Kimi K3；批量便宜 → Qwen3.5 Flash；复杂推理 → Qwen3.8 Max；
-代码 → Kimi K2.7 Code；挑剔评审/找漏洞 → GLM-5.3；看图 → Qwen3-VL-Plus；本地兜底 → Ollama。
+### 2.1 按活选模型 —— 我的默认决策（自己拍板，不问用户）
+
+| 要干的活 | 首选 | 备选 / 复核 | 档位 |
+|---|---|---|---|
+| 读文件、查代码、多步操作（**便宜优先**） | `ark/doubao-seed-2-1-turbo-260628` | `qwen/qwen3.5-flash` | minimal |
+| 大批量纯文本（翻译/分类/摘要/计算） | `ark/doubao-seed-2-0-mini-260428` | `qwen/qwen3.5-flash` | minimal |
+| 长文、方案、跨领域推理 | `moonshot/kimi-k3` | `bailian/kimi-k3`（限流时换通道） | high |
+| 复杂分析、要"想清楚" | `qwen/qwen3.8-max` | `bailian/deepseek-v4-pro` | high |
+| 写代码 / 改代码 | `moonshot/kimi-k2.7-code` | `qwen/qwen3-coder-flash` | medium |
+| **挑刺、找漏洞、对抗式复核** | `bailian/glm-5.3` | `qwen/qwen3.8-max`（**用不同家交叉**） | low/high/max |
+| 看图、截图判读 | `qwen/qwen3-vl-plus` | `moonshot/kimi-k3` | — |
+| 中文长文写作与润色 | `bailian/deepseek-v4-pro` | `qwen/qwen3.8-max` | medium |
+| 起草便宜草稿 → 我核验 | 豆包 mini / turbo | — | minimal |
+| 敏感/离线/不想花钱 | `ollama/*` | — | — |
+| **最终裁决、合并、验证** | **我自己（不外包）** | — | — |
+
+**铁律**：便宜模型只出草稿，**结论由我核验**；挑刺必须用**不同厂商**的模型（同源盲区相同）。
+
+### 2.2 思考档位经济学（实测，省钱全靠这个）
+
+| 模型 | 不传参数 | `minimal` | `high` | 结论 |
+|---|---|---|---|---|
+| doubao-seed-2-1-turbo | 4426 tok | **155 tok** | 4247 tok | 差 **28 倍** |
+| doubao-seed-2-0-mini | 1114 tok | **423 tok** | 3033 tok | 差 7 倍 |
+| doubao-seed-2-0-lite | 4435 tok | **538 tok** | 7687 tok | 差 14 倍 |
+| kimi-k3（直连实测） | 最深（357 字） | ≈0 字 | ≈102–141 字 | 只有 on/off 硬边界 |
+| qwen3.5-flash | 2463 字 | 0（≡ 关思考） | 2785 字 | 单调 |
+
+**两条硬规则**：
+1. **永远显式传档位**——不传参数往往比 `medium` 还贵（豆包/ Kimi 都是）。
+2. **批量活一律 `minimal`**；只有"要它想清楚"时才给 `high`，且先给便宜模型试。
+
+### 2.3 成本分档（选型先看这栏）
+
+| 档 | 模型 | 用法 |
+|---|---|---|
+| 💰 极便宜 | 豆包 mini / turbo / lite | 批量、草稿、纯文本；turbo 可做 agentic |
+| 💰 便宜 | qwen3.5-flash、qwen-plus、bailian 的 GLM/DeepSeek flash | 日常主力、筛候选 |
+| 💰💰 中等 | kimi-k2.7-code、qwen3.8-max、glm-5.3 | 难活、评审、写代码 |
+| 💰💰💰 贵 | kimi-k3（长上下文）、qwen3-vl-plus | 只在长文/看图时用 |
+| 免费 | ollama | 离线、敏感、零成本兜底 |
+
 
 ## 3. 四种编排模式（复制即用）
 
@@ -79,6 +122,10 @@ const [a, b] = await parallel([
 | `400 'reasoning_effort' must be one of: 'low','high','max'` | 各家思考词表不同 | 只声明该模型认的键（见 §2 备注） |
 | 模型说"看不到图像" | provider 配置没声明 `input: [text, image]` | 在模型条目补 `input` |
 | `429 max organization concurrency: 1` / `max RPM: 3` | Moonshot 账号等级限制（0 级） | 升到 1 级（15 并发）或改走 `bailian/kimi-k3` |
+| `429 SetLimitExceeded … Safe Experience Mode` | **火山方舟「安全体验模式」免费额度用尽**（试用账号） | 控制台「开通管理」关闭/调高该模式；**教训：试用账号上别做大上下文探测**——一次 400k 字符探测≈20 万 token，能直接吃光额度 |
+| `InvalidEndpointOrModel.NotFound`（方舟） | 方舟模型**没在控制台开通**（`/models` 会列出全部可售模型，但不等于已开通） | 控制台开通对应模型；只有已开通的 id 能调 |
+| 小模型**编造文件内容**（假行号/假代码） | 它根本没调用工具，直接凭上下文作答——工具表太大时小模型会忽略工具 | 让它在纯文本任务里干活；或换 Kimi/Qwen/DeepSeek；**任何小模型输出都要核验** |
+| 新加的模型在 workflow 里查不到 | 运行中的会话**模型注册表是快照**，新模型要重启 DSH 才进注册表（provider 本身会热加载） | 重启 DSH；或先用 CLI（dsh --profile phone '任务'）验证 |
 | workflow 报 model 不存在 | `provider` 名或 model id 写错 | 对照 §2；改完 provider 配置**通常热加载**，不生效再重启 |
 
 ## 5. 诊断配方（我自己用的）
@@ -107,8 +154,8 @@ return await parallel(cases.map(([p,m]) => () => agent(Q, { provider: p, model: 
 ## 6. 工具（本技能自带，别手工试错）
 
 ```powershell
-$py = "python"
-$t  = "~\.agents\skills\multi-model-orchestration\tools"
+$py = "~/miniconda4\python.exe"
+$t  = "~/.agents\skills\multi-model-orchestration\tools"
 
 & $py $t/modelops.py check                 # 连通性：key 是否有效、端点是否可达、账号可见多少模型
 & $py $t/modelops.py matrix                # 全量能力矩阵 → references\model-matrix.md（52 个模型约 1~2 分钟）
