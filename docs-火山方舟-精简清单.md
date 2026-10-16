@@ -17,6 +17,26 @@
 - **纯文本批量 → 用 mini**（最便宜，够准）
 - **任何便宜模型的输出都要核验**：它的工具调用能力在 API 层正常，但经 DSH 的大工具表时小模型会"跳过工具直接作答"
 
+## 图像生成（Seedream）—— 已实测可用 ✅
+
+**模型**：`doubao-seedream-5-0-pro-260628`（5.0 pro，实测出图质量可商用）
+
+**为什么不能像聊天模型那样加进 DSH 的 provider 配置**：聊天走 `/chat/completions`，
+图像走 `/images/generations` —— 端点、报文都不同。所以图像能力以**工具**形式提供：
+
+```powershell
+python ~/.agents/skills/multi-model-orchestration/tools/ark_image.py --prompt "一只橘猫坐在书桌前，简笔画风格"
+python ark_image.py --prompt "..." --size 2048x2048 --n 3 --out D:\pics
+python ark_image.py --prompt "..." --seed 12345        # 固定种子可复现
+```
+
+**实测数据**：
+- 1024×1024 出图约 **47 秒**，用量记 **4096 output_tokens/张**（方舟按此折算计费）
+- 中文文字渲染准确（便签、UI 标签都能写对）
+- **注意坑**：API 返回的是 **JPEG** 而不是 PNG —— 工具里已按魔数自动判格式命名（直接存 `.png` 会得到假后缀文件）
+
+**已验证的用途**：UI 示意图 / 产品配图 / 营销插图（实测生成"数据标注工作台"完整界面图，中文标签、标注框、进度统计都正确）
+
 ## 可以先不开的
 
 | 类别 | 例子 | 为什么先不开 |
