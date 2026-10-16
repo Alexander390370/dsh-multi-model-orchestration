@@ -42,6 +42,9 @@ metadata:
 | `bailian / glm-5.3` | 挑剔型评审 | ✅ | 只认 `low/high/max` 三档 |
 | `bailian / deepseek-v4-pro` | 中文长文 | ✅ | 只认 `low/medium/high/xhigh/max` |
 | `ark / doubao-seed-2-1-turbo-260628` | **便宜的 agentic 工人**（能读文件、多步任务） | ✅ 两次全对 | `minimal` 输出 **155 tok**（不传参数 4426 tok，**28 倍差**）；单文件任务约 11 秒 |
+| `ark / doubao-seed-2-1-pro-260915`（及 `-260628`） | 方舟旗舰，我哥之外的重活候选 | ✅ 基础+档位通过 | `minimal` 29–40 tok vs 默认 867–1700 tok（**20–42 倍差**） |
+| `ark / doubao-seed-evolving` | 跟随最新版的豆包别名 | ✅ 基础+档位通过 | `minimal` 29 vs 默认 834 |
+| `ark / glm-5-2-260617` | **GLM-5.2 的方舟通道** | ✅ 基础+档位通过 | `minimal` 28 vs 775；百炼限流时的备用通道 |
 | `ark / doubao-seed-2-0-mini-260428` | **最便宜的纯文本批量活** | ✅ | 计算/翻译准确；**读文件会编**，别给 agentic 活 |
 | `ark / doubao-seed-2-0-lite-260428` | 同上的备份 | ⚠ 只纯文本 | 工具调用 API 层正常，但经 DSH 大工具表时**不读文件直接编**（假行号假代码） |
 | `ollama / *` | 本地、离线、零成本 | 未测 | 走 127.0.0.1:11434 |
