@@ -47,6 +47,8 @@ metadata:
 | `ark / glm-5-2-260617` | **GLM-5.2 的方舟通道** | ✅ 基础+档位通过 | `minimal` 28 vs 775；百炼限流时的备用通道 |
 | `ark / doubao-seed-2-0-mini-260428` | **最便宜的纯文本批量活** | ✅ | 计算/翻译准确；**读文件会编**，别给 agentic 活 |
 | `ark / doubao-seed-2-0-lite-260428` | 同上的备份 | ⚠ 只纯文本 | 工具调用 API 层正常，但经 DSH 大工具表时**不读文件直接编**（假行号假代码） |
+| `ark / doubao-seedream-5-0-pro-260628` | **图像生成**（配图 / UI 示意 / 插画） | ✅ 实测出图 | ⚠ **不是对话模型**：走 `/images/generations`，**不能写进 provider 配置**；用 `tools/ark_image.py`；1024² 约 47 秒、4096 tok/张；返回 JPEG（工具按魔数自动命名） |
+| `ark / doubao-seedream-5-0-flash-260915` | 图像生成（更快更省） | ⬜ 需先在控制台开通 | 开通后同样用 `ark_image.py --model` 调用 |
 | `ollama / *` | 本地、离线、零成本 | 未测 | 走 127.0.0.1:11434 |
 
 ### 2.1 怎么拍板 —— 灵活决策，不搞"某活必用某模型"
