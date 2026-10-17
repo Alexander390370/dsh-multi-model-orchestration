@@ -19,9 +19,12 @@ import re
 import time
 
 try:
-    from compression import zstd  # Python 3.14+
+    from compression import zstd  # Python 3.14+ 内置
 except ImportError:  # pragma: no cover
-    zstd = None
+    try:
+        import zstandard as zstd  # 3.9-3.13：pip install zstandard
+    except ImportError:
+        zstd = None
 
 ROOTS = [os.path.expanduser(r"~\.dsh\sessions"),
          os.path.expanduser(r"~\.dsh\storages\session_projcache\sessions")]
@@ -50,7 +53,12 @@ def main() -> int:
         raw = open(path, "rb").read()
         if path.endswith(".zstd"):
             if zstd is None:
-                print("需要 Python 3.14 的 compression.zstd")
+                print(
+                    "解压会话日志需要 zstd：\n"
+                    "  Python 3.14+ 自带 compression.zstd，无需安装；\n"
+                    "  3.9-3.13 请 pip install zstandard\n"
+                    "（不装也能跑，但 .zstd 文件会被跳过）"
+                )
                 return 2
             try:
                 raw = zstd.decompress(raw)

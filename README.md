@@ -36,7 +36,7 @@ DSH 里让多个模型协作有两个坑，这个包把它堵上：
 
 手动安装 = 把这个目录复制到 `~/.agents/skills/multi-model-orchestration/`。
 
-要求：Python 3.9+（推荐 3.14，`dsh-errors.py` 用内置 `compression.zstd` 解压会话日志）、`pip install pyyaml`。
+要求：Python 3.9+。**跑 `dsh-errors.py` 需要 zstd 解压能力**：Python 3.14+ 自带 `compression.zstd`；3.9–3.13 请 `pip install zstandard`（脚本已做双路径回退，没有也能跑，只是 `.zstd` 会话文件会被跳过）。
 
 ## 目录
 
@@ -52,15 +52,18 @@ multi-model-orchestration/
 
 ## 快速开始
 
-```bash
-py=python
-t=~/.agents/skills/multi-model-orchestration/tools
+```powershell
+# 解释器用你自己的 python（3.9+；dsh-errors.py 需 3.14 或 pip install zstandard）
+$py = "python"
+$t  = "$HOME\.agents\skills\multi-model-orchestration\tools"
 
-$py $t/modelops.py check          # 连通性：key 是否有效、端点是否可达
-$py $t/modelops.py matrix         # 全量能力矩阵 → references/model-matrix.md
-$py $t/modelops.py add --provider qwen --model qwen3.9-max --deep   # 新模型：自动推导该怎么配
-$py $t/dsh-errors.py -m 30 -g qwen                                  # 捞最近报错
+& $py $t\modelops.py check          # 连通性：key 是否有效、端点是否可达
+& $py $t\modelops.py matrix         # 全量能力矩阵 → references\model-matrix.md
+& $py $t\modelops.py add --provider qwen --model qwen3.9-max --deep   # 新模型：自动推导该怎么配
+& $py $t\dsh-errors.py -m 30 -g qwen                                  # 捞最近报错
 ```
+
+> `--profile` / `--creds` 必须写在子命令**前面**：`modelops.py --profile phone check` ✅
 
 `modelops.py add` 会打印**可直接粘贴**的 YAML 片段，例如：
 

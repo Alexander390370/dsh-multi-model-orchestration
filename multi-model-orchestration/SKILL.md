@@ -2,8 +2,10 @@
 name: multi-model-orchestration
 description: Orchestrate one task across several models and modalities as Team Lead. Use when a job benefits from different model strengths (long-context reading, code, cheap bulk passes, adversarial review, vision), when the user says "让几个模型一起做 / 多模型 / 交叉验证 / 找一个不同模型唱反调", or when routing work to Kimi / Qwen / GLM / DeepSeek / local Ollama through a workflow. Covers model routing, panel patterns, verified provider failure modes, and the delegation contract. Skip for single-model tasks — one model is faster and cheaper.
 metadata:
-  version: "1"
-  verified_on: "2026-10-14"
+  version: "2"
+  verified_on: "2026-10-17"
+  reviewed_by: "kimi-k3, qwen3.8-max, doubao-seed-2-1-pro, claude-opus-5.5"
+  tested_dsh_version: "2026-10-14 快照"
 ---
 
 # 多模型编排（中轴线手册）
@@ -17,15 +19,23 @@ metadata:
 
 | 工具 | 能否指定模型 | 说明 |
 |---|---|---|
-| `workflow` 的 `agent(prompt, { provider, model })` | ✅ **唯一可靠方式** | 逐 agent 覆盖，可混着跑多家的模型 |
+| `workflow` 的 `agent(prompt, { provider, model })` | ✅ **逐 agent 覆盖** | 目前唯一能按次指定 provider/model 的委派方式，可混着跑多家的模型 |
 | `spawn_teammate` | ❌ **入参没有 model 字段** | 常驻队友只能继承会话默认模型（`agent-default-model`）。别用它做跨模型 |
-| 子代理（`subagent`） | ❌ 同上 | 一次性委派，仍继承会话模型 |
+| 子代理（`subagent` / `subagent_fork`） | ❌ 同上 | 一次性委派，仍继承会话模型 |
 
 所以：**要跨模型，就用 `workflow`**；需要"常驻队友"时接受它与主会话同模型。
 
+> 上面这行结论**只对当前 DSH 版本成立**（`verified_on: 2026-10-14`）。DSH 是活跃开发中的框架，
+> 如果哪天 `subagent` 加上了 model 参数，这段就该改写——用之前先看一眼工具签名。
+
 `provider` 名必须与 profile 配置一致（见 §2 表），写错 → agent 静默返回 `null`。
 
-## 2. 已验证的模型路由表（截至 2026-10-15，全部我亲自实测）
+## 2. 模型路由表（**作者环境快照**，截至 2026-10-15）
+
+> ⚠️ **这不是通用事实，是一份个人账号的快照。** 表里的可用性、上下文上限、思考词表、
+> token 数、限流等级都跟你自己的账号开通状态和厂商当月版本强相关，会过期。
+> 拿去用之前先跑 §6 的 `modelops.py matrix` 在你自己的环境重测一遍。
+> token 数字是**单次探针观测**，不是基准测试。
 
 | provider / model | 定位 | 实测 | 备注 |
 |---|---|---|---|
@@ -41,8 +51,10 @@ metadata:
 | `bailian / kimi-k3` | Kimi 的备用通道 | ✅ | 走百炼，**不受 Moonshot 账号并发限制** |
 | `bailian / glm-5.3` | 挑剔型评审 | ✅ | 只认 `low/high/max` 三档 |
 | `bailian / deepseek-v4-pro` | 中文长文 | ✅ | 只认 `low/medium/high/xhigh/max` |
+| `router-one / anthropic/claude-opus-5.5` | **Claude 通道**（跨厂商交叉验证的第二家） | ✅ 实测通过 | 只有 Claude 系（opus/sonnet/haiku 5.5），**没有 GPT 直连**；1M 上下文 |
+| `stepfun / step-3.5-flash` 等 | Step 系 | ⬜ 已配置未详测 | 见 profile 配置 |
 | `ark / doubao-seed-2-1-turbo-260628` | **便宜的 agentic 工人**（能读文件、多步任务） | ✅ 两次全对 | `minimal` 输出 **155 tok**（不传参数 4426 tok，**28 倍差**）；单文件任务约 11 秒 |
-| `ark / doubao-seed-2-1-pro-260915`（及 `-260628`） | 方舟旗舰，我哥之外的重活候选 | ✅ 基础+档位通过 | `minimal` 29–40 tok vs 默认 867–1700 tok（**20–42 倍差**） |
+| `ark / doubao-seed-2-1-pro-260915`（及 `-260628`） | 方舟旗舰，重活候选 | ✅ 基础+档位通过 | `minimal` 29–40 tok vs 默认 867–1700 tok（**20–42 倍差**） |
 | `ark / doubao-seed-evolving` | 跟随最新版的豆包别名 | ✅ 基础+档位通过 | `minimal` 29 vs 默认 834 |
 | `ark / glm-5-2-260617` | **GLM-5.2 的方舟通道** | ✅ 基础+档位通过 | `minimal` 28 vs 775；百炼限流时的备用通道 |
 | `ark / doubao-seed-2-0-mini-260428` | **最便宜的纯文本批量活** | ✅ | 计算/翻译准确；**读文件会编**，别给 agentic 活 |
@@ -64,12 +76,13 @@ metadata:
 
 ### 2.1.1 别忘了我自己（最重要的一条）
 
-**我就是 DeepSeek，本身就是一名可用的工人**，不是只会派活的调度台：
+**当前会话的默认模型本身就是一名可用的工人**，不是只会派活的调度台。本机默认是
+`deepseek-account/deepseek-flash`；如果你在别的模型上加载这份技能，把下表换成你自己的默认档位。
 
-| 我的档位 | 什么时候用 |
+| 档位 | 什么时候用 |
 |---|---|
-| `deepseek-account/deepseek-flash`（当前默认＝我） | **默认先自己干**：小任务、要我保持上下文的活、需要连续多步试错的活 |
-| `deepseek-account/deepseek-v4-pro`（我哥 Pro） | 我自己需要更强推理时；比外包更省事——**同一个 harness、同一份上下文**，只是换个更重的脑子 |
+| 会话默认模型（本机＝deepseek-flash） | **默认先自己干**：小任务、要我保持上下文的活、需要连续多步试错的活 |
+| `deepseek-account/deepseek-v4-pro`（更强档） | 需要更强推理时；比外包更省事——**同一个 harness、同一份上下文**，只是换个更重的脑子 |
 
 **为什么"自己做"经常最省**：委派不是免费的——**每个子代理都要重发一遍系统提示 + 工具表 + 技能清单（≈1–2 万 token）**，还要重新读一遍文件才能干活。所以：
 - 小任务、一次能说完的任务 → **自己做**（委派的开销比任务本身还大）
@@ -158,7 +171,11 @@ const [a, b] = await parallel([
 **捞子代理真实报错**（`agent()` 的 null 不告诉你原因）：
 ```python
 import glob, os, re, time
-from compression import zstd           # Python 3.14 自带
+try:
+    from compression import zstd        # Python 3.14+ 内置
+except ImportError:
+    import zstandard as zstd            # 3.9-3.13: pip install zstandard
+
 paths = sorted(((os.path.getmtime(p), p) for p in
     glob.glob(os.path.expanduser(r"~\.dsh\sessions\**\*"), recursive=True) if os.path.isfile(p)),
     reverse=True)
@@ -168,6 +185,10 @@ for mt, p in paths[:6]:
     for m in re.finditer(r'"kind":"error"', t):
         print(time.strftime("%H:%M:%S", time.localtime(mt)), re.sub(r"\s+", " ", t[m.start():m.start()+400]))
 ```
+
+> DSH 的会话日志（`~\.dsh\sessions\**\session.v4.jsonl.zstd`）**全是 zstd 压缩的**，
+> 没有解压能力就捞不到任何东西。Python 3.14 自带 `compression.zstd`；3.9–3.13 要
+> `pip install zstandard`。本仓库的 `tools/dsh-errors.py` 已做双路径回退。
 
 **矩阵复测**（怀疑路由坏了时，10 个 1-token agent 并行，几秒出结果）：
 ```js
@@ -179,15 +200,26 @@ return await parallel(cases.map(([p,m]) => () => agent(Q, { provider: p, model: 
 ## 6. 工具（本技能自带，别手工试错）
 
 ```powershell
-$py = "~/miniconda4\python.exe"
-$t  = "~/.agents\skills\multi-model-orchestration\tools"
+# 解释器用你自己的 python（3.9+；跑 dsh-errors.py 需要 3.14 或 pip install zstandard）
+$py = "python"
+$t  = "$HOME\.agents\skills\multi-model-orchestration\tools"
 
-& $py $t/modelops.py check                 # 连通性：key 是否有效、端点是否可达、账号可见多少模型
-& $py $t/modelops.py matrix                # 全量能力矩阵 → references\model-matrix.md（52 个模型约 1~2 分钟）
-& $py $t/modelops.py matrix --only qwen    # 只测某家
-& $py $t/modelops.py add --provider qwen --model qwen3.9-max --deep   # 探查新模型并推导配置块
-& $py $t/dsh-errors.py -m 30 -g qwen       # 捞最近报错（agent() 返回 null 时的第一手段）
+& $py $t\modelops.py check                 # 连通性：key 是否有效、端点是否可达、账号可见多少模型
+& $py $t\modelops.py matrix                # 全量能力矩阵 → references\model-matrix.md（约 1~2 分钟）
+& $py $t\modelops.py matrix --only qwen    # 只测某家
+& $py $t\modelops.py add --provider qwen --model qwen3.9-max --deep   # 探查新模型并推导配置块
+& $py $t\dsh-errors.py -m 30 -g qwen       # 捞最近报错（agent() 返回 null 时的第一手段）
 ```
+
+```bash
+# macOS / Linux
+py=python
+t="$HOME/.agents/skills/multi-model-orchestration/tools"
+$py $t/modelops.py check
+```
+
+> **`--profile` / `--creds` 必须写在子命令前面**（argparse 父级参数）：
+> `modelops.py --profile phone check` ✅，`modelops.py check --profile phone` ❌
 
 `references/model-matrix.md` 由工具生成，**不要手改**；每次加/换模型后重跑一次即可。
 矩阵里的 `developer 角色=拒绝` 一列直接告诉你该 provider 要不要 `compat.supportsDeveloperRole: false`。
@@ -216,7 +248,7 @@ $t  = "~/.agents\skills\multi-model-orchestration\tools"
 
 | 场景 | 回退动作 |
 |---|---|
-| 某模型 429 / 限流 | **换通道**：`moonshot/kimi-k3` ↔ `bailian/kimi-k3`（后者不走 Moonshot 账号限流） |
+| 某模型 429 / 限流 | **换通道**：`moonshot/kimi-k3` ↔ `bailian/kimi-k3`（后者不走 Moonshot 账号限流）。⚠️ 前提是你**已经配好 bailian provider 且有有效百炼 key**，否则换了还是 401——备用通道要提前配，别等限流了才想起来 |
 | 某模型 400 参数错 | 跑 `dsh-errors.py` 看原话 → 按 §4 修配置 → 修完再试；**别换模型掩盖配置错** |
 | 单模型不可用 | 用同族替代：Qwen3.8Max→3.7-Max→3.5-Plus；GLM-5.3→GLM-5.2；K3→K2.7-Code |
 | 长上下文被截断 | 换 `contextWindow` 大的：Kimi 系 262144；或先让便宜模型压缩摘要再交给强模型 |
