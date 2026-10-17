@@ -25,7 +25,7 @@ metadata:
 
 所以：**要跨模型，就用 `workflow`**；需要"常驻队友"时接受它与主会话同模型。
 
-> 上面这行结论**只对当前 DSH 版本成立**（`verified_on: 2026-10-14`）。DSH 是活跃开发中的框架，
+> 上面这行结论**只对当前 DSH 版本成立**（见 frontmatter 的 `tested_dsh_version`）。DSH 是活跃开发中的框架，
 > 如果哪天 `subagent` 加上了 model 参数，这段就该改写——用之前先看一眼工具签名。
 
 `provider` 名必须与 profile 配置一致（见 §2 表），写错 → agent 静默返回 `null`。

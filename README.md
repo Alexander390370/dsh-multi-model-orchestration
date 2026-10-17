@@ -11,10 +11,11 @@ DSH 里让多个模型协作有两个坑，这个包把它堵上：
 
 1. **`spawn_teammate`（常驻队友）不能指定模型** —— 它的入参只有 `name/description/prompt/context`，
    队友只能继承会话默认模型。于是"找两个不同模型交叉验证"用队友是做不到的。
-   → **唯一可靠路径是 `workflow` 的 `agent(prompt, { provider, model })` 逐次覆盖**。
+   → **当前 DSH 版本下唯一可靠路径是 `workflow` 的 `agent(prompt, { provider, model })` 逐次覆盖**
+     （工具签名可能随版本变化，升级后请重新核验）。
 2. **每家模型的"脾气"都不一样**，配错了就静默失败（`agent()` 失败只返回 `null`，不给原因）：
    - 非 OpenAI 端点普遍拒绝 `developer` 角色 → 需要 `compat.supportsDeveloperRole: false`
-   - 各家 `reasoning_effort` **词表不同**（GLM 只认 `low/high/max`；DeepSeek 认 `low/medium/high/xhigh/max`）
+   - 各家 `reasoning_effort` **词表不同**（GLM-5.3 只认 `low/high/max`，但 GLM-5/5.1/5.2 认更多档；DeepSeek 认 `low/medium/high/xhigh/max`）
    - 视觉模型必须显式声明 `input: [text, image]`，否则 DSH 会把图片丢掉，模型回答"我看不到图"
    - 有些模型输入上限比你想的小（例：`qwen-max` = 30720），DSH 压缩时超限会整轮失败
    - Moonshot 拒绝带自引用 `$ref` 的工具 JSON Schema（`infinite recursion`）
@@ -36,7 +37,8 @@ DSH 里让多个模型协作有两个坑，这个包把它堵上：
 
 手动安装 = 把这个目录复制到 `~/.agents/skills/multi-model-orchestration/`。
 
-要求：Python 3.9+。**跑 `dsh-errors.py` 需要 zstd 解压能力**：Python 3.14+ 自带 `compression.zstd`；3.9–3.13 请 `pip install zstandard`（脚本已做双路径回退，没有也能跑，只是 `.zstd` 会话文件会被跳过）。
+要求：Python 3.9+。**`modelops.py` 还需 `pip install pyyaml`**（缺了会提示）。
+**跑 `dsh-errors.py` 需要 zstd 解压能力**：Python 3.14+ 自带 `compression.zstd`；3.9–3.13 请 `pip install zstandard`（脚本已做双路径回退，没有也能跑，只是 `.zstd` 会话文件会被跳过并提示）。
 
 ## 目录
 
@@ -47,6 +49,7 @@ multi-model-orchestration/
 │   └─ model-matrix.example.md     自动生成的模型能力矩阵（示例）
 └─ tools/
     ├─ modelops.py                 check / matrix / add —— 自检与配置推导
+    ├─ ark_image.py                火山方舟图像生成（Seedream），非对话模型
     └─ dsh-errors.py               从会话语料里捞子代理的真实报错
 ```
 

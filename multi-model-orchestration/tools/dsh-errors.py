@@ -26,8 +26,15 @@ except ImportError:  # pragma: no cover
     except ImportError:
         zstd = None
 
-ROOTS = [os.path.expanduser(r"~\.dsh\sessions"),
-         os.path.expanduser(r"~\.dsh\storages\session_projcache\sessions")]
+# 用 os.path.join 拼路径，而不是硬编码反斜杠：POSIX 上反斜杠不是分隔符，
+# 写成 r"~\.dsh\sessions" 会 expanduser 成一个带反斜杠的字面目录名，
+# 结果扫到 0 个文件却静默输出「共 0 条」。
+# 也尊重 DSH_HOME 环境变量，和 modelops.py 保持一致。
+_DSH_HOME = os.path.expanduser(os.environ.get("DSH_HOME", "~/.dsh"))
+ROOTS = [
+    os.path.join(_DSH_HOME, "sessions"),
+    os.path.join(_DSH_HOME, "storages", "session_projcache", "sessions"),
+]
 
 
 def main() -> int:
@@ -47,19 +54,16 @@ def main() -> int:
 
     cut = 0 if args.all else time.time() - args.minutes * 60
     shown = 0
+    skipped_zstd = 0
     for mt, path in files[: args.files]:
         if mt < cut:
             continue
         raw = open(path, "rb").read()
         if path.endswith(".zstd"):
             if zstd is None:
-                print(
-                    "解压会话日志需要 zstd：\n"
-                    "  Python 3.14+ 自带 compression.zstd，无需安装；\n"
-                    "  3.9-3.13 请 pip install zstandard\n"
-                    "（不装也能跑，但 .zstd 文件会被跳过）"
-                )
-                return 2
+                # 真·跳过：继续扫后面的文件，而不是整体退出
+                skipped_zstd += 1
+                continue
             try:
                 raw = zstd.decompress(raw)
             except Exception:  # noqa: BLE001
@@ -73,6 +77,12 @@ def main() -> int:
             print(f"    {win[:420]}\n")
             shown += 1
             break  # 每个文件只报第一条，避免刷屏
+
+    if skipped_zstd:
+        print(
+            f"⚠️ 跳过了 {skipped_zstd} 个 .zstd 会话文件（没有 zstd 解压能力）。\n"
+            f"   Python 3.14+ 自带 compression.zstd；3.9-3.13 请 pip install zstandard\n"
+        )
     print(f"共 {shown} 条（窗口 {args.minutes} 分钟，扫描 {min(args.files, len(files))} 个最新会话文件）")
     return 0
 

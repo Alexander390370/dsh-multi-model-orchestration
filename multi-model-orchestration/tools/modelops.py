@@ -33,7 +33,11 @@ DSH_HOME = os.path.expanduser(os.environ.get("DSH_HOME", "~/.dsh"))
 PROFILE = os.path.join(DSH_HOME, "profiles", os.environ.get("DSH_PROFILE", "desktop"),
                        "cordis.patch.yml")
 CREDS = os.path.join(DSH_HOME, ".credentials.yaml")
-SKILL_DIR = os.path.expanduser(r"~\.agents\skills\multi-model-orchestration")
+# 技能根目录：从本文件位置反推（tools/ 的上一级），跨平台，且不假设装在 ~/.agents/skills。
+# 想覆盖就设环境变量 MMO_SKILL_DIR。
+SKILL_DIR = os.environ.get("MMO_SKILL_DIR") or os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))
+)
 REFS = os.path.join(SKILL_DIR, "references")
 CACHE = os.path.join(REFS, "model-matrix.json")
 MATRIX_MD = os.path.join(REFS, "model-matrix.md")
