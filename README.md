@@ -1,6 +1,11 @@
 # DSH 多模型编排技能包（multi-model-orchestration）
 
 [![release](https://img.shields.io/github/v/release/Alexander390370/dsh-multi-model-orchestration?label=download&color=blue)](https://github.com/Alexander390370/dsh-multi-model-orchestration/releases)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Version](https://img.shields.io/badge/Version-2.0.0-blue)
+![Size](https://img.shields.io/badge/Size-30_KB-lightgrey)
+![Models](https://img.shields.io/badge/Models-Kimi_%7C_Qwen_%7C_GLM_%7C_DeepSeek-purple)
+![Local](https://img.shields.io/badge/Runtime-Pure_Local-brightgreen)
 
 > 让一个 AI 主控（Team Lead）把任务**按模型长处拆给不同的大模型**去干，并把结果收口验证。
 > 面向 [DeepSeek Harness](https://github.com/deepseek-ai) 的 Agent Skill + 自检工具，纯本地运行，不依赖任何服务。
